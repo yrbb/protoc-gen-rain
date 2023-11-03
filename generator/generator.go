@@ -135,6 +135,10 @@ func (g *Generator) CommandLineParameters(parameter string) {
 			}
 		}
 	}
+
+	if g.ImportPrefix == "" {
+		g.ImportPrefix = g.Param["repo"] + "/"
+	}
 }
 
 // DefaultPackageName returns the package name printed for the object.
@@ -156,6 +160,7 @@ func (g *Generator) GoPackageName(importPath GoImportPath) GoPackageName {
 	if name, ok := g.packageNames[importPath]; ok {
 		return name
 	}
+
 	name := cleanPackageName(baseName(string(importPath)))
 	for i, orig := 1, name; g.usedPackageNames[name] || isGoPredeclaredIdentifier[string(name)]; i++ {
 		name = orig + GoPackageName(strconv.Itoa(i))
@@ -163,6 +168,7 @@ func (g *Generator) GoPackageName(importPath GoImportPath) GoPackageName {
 
 	g.packageNames[importPath] = name
 	g.usedPackageNames[name] = true
+
 	return name
 }
 
@@ -490,6 +496,7 @@ func (g *Generator) GenerateAllFiles() {
 	for _, file := range g.genFiles {
 		genFileMap[file] = true
 	}
+
 	for _, file := range g.allFiles {
 		g.Reset()
 		g.writeOutput = genFileMap[file]
@@ -603,10 +610,7 @@ func (g *Generator) generateService(file *FileDescriptor, service *descriptor.Se
 	if pkg := file.GetPackage(); pkg != "" {
 		serviceName = pkg
 	}
-	servName := CamelCase(origServName) // + "Service"
-	// if strings.HasSuffix(servName, "ServiceService") {
-	// 	servName = strings.TrimSuffix(servName, "Service")
-	// }
+	servName := CamelCase(origServName)
 
 	g.P()
 	g.P()
@@ -939,16 +943,14 @@ func (g *Generator) weak(i int32) bool {
 
 // Generate the imports
 func (g *Generator) generateImports(typ string) {
-	imports := make(map[GoImportPath]GoPackageName)
+	imports := make(map[GoPackageName]GoPackageName)
 	for i, s := range g.file.Dependency {
-		fd := g.fileByName(s)
-		importPath := fd.importPath
-		importPath = GoImportPath(s)
-
-		// Do not import our own package.
-		if importPath == g.file.importPath {
+		// Do not import weak imports.
+		if g.weak(int32(i)) {
 			continue
 		}
+
+		importPath := GoImportPath(s)
 
 		if strings.Contains(string(importPath), "/protobuf/") ||
 			strings.Contains(string(importPath), "google/api") ||
@@ -956,27 +958,22 @@ func (g *Generator) generateImports(typ string) {
 			continue
 		}
 
-		// Do not import weak imports.
-		if g.weak(int32(i)) {
-			continue
-		}
-		// Do not import a package twice.
-		if _, ok := imports[importPath]; ok {
-			continue
-		}
-		// We need to import all the dependencies, even if we don't reference them,
-		// because other code and tools depend on having the full transitive closure
-		// of protocol buffer types in the binary.
 		packageName := g.GoPackageName(importPath)
 		if _, ok := g.usedPackages[importPath]; !ok {
 			continue
 		}
 
-		imports[importPath] = packageName
+		if _, ok := imports[packageName]; ok {
+			continue
+		}
+
+		imports[packageName] = packageName
 	}
+
 	// for importPath := range g.addedImports {
 	// 	imports[importPath] = g.GoPackageName(importPath)
 	// }
+
 	// We almost always need a proto import.  Rather than computing when we
 	// do, which is tricky when there's a plugin, just import it and
 	// reference it later. The same argument applies to the fmt and math packages.
@@ -988,28 +985,28 @@ func (g *Generator) generateImports(typ string) {
 	}
 }
 
-func (g *Generator) generateModelImports(imports map[GoImportPath]GoPackageName) {
+func (g *Generator) generateModelImports(imports map[GoPackageName]GoPackageName) {
 	if len(imports) == 0 {
 		return
 	}
 
 	g.P("import (")
-	for importPath, packageName := range imports {
-		g.P(packageName, " ", GoImportPath(g.ImportPrefix)+importPath)
+	for importPath := range imports {
+		g.P(`"` + g.ImportPrefix + string(importPath) + `"`)
 	}
 	g.P(")")
 	g.P()
 	g.P()
 }
 
-func (g *Generator) generateApiImports(imports map[GoImportPath]GoPackageName) {
+func (g *Generator) generateApiImports(imports map[GoPackageName]GoPackageName) {
 	g.P("import (")
 	g.P(`"github.com/gin-gonic/gin"`)
 	g.P(`"github.com/gin-gonic/gin/binding"`)
 	g.P()
 	g.P(`"`, g.Param["repo"], `/router"`)
-	for importPath, packageName := range imports {
-		g.P(packageName, " ", GoImportPath(g.ImportPrefix)+importPath)
+	for importPath := range imports {
+		g.P(`"` + g.ImportPrefix + string(importPath) + `"`)
 	}
 	g.P(")")
 	g.P()
@@ -1020,8 +1017,7 @@ func (g *Generator) generateImported(id *ImportedDescriptor) {
 	df := id.o.File()
 	filename := *df.Name
 
-	if df.importPath == g.file.importPath {
-		// Don't generate type aliases for files in the same Go package as this one.
+	if df.importPath == g.file.importPath && *df.Package == *g.file.Package {
 		return
 	}
 
