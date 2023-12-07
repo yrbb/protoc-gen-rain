@@ -1,0 +1,20 @@
+FROM golang:1.21-alpine
+
+ENV GOPROXY "https://goproxy.cn,direct"
+ENV GOSUMDB "off"
+
+RUN echo 'http://mirrors.aliyun.com/alpine/v3.9/main' > /etc/apk/repositories \
+    && apk add --no-cache bash protobuf curl git make gcc libc-dev \
+    && rm -rf /var/cache/apk/* /tmp/*
+
+RUN export PROTOC_ZIP=protoc-21.9-linux-x86_64.zip \
+    && curl -OL https://github.com/protocolbuffers/protobuf/releases/download/v21.9/$PROTOC_ZIP \
+    && unzip -o $PROTOC_ZIP -d /usr/local 'include/*' \
+    && rm -f $PROTOC_ZIP
+
+RUN go install -v github.com/golang/protobuf/protoc-gen-go@latest
+RUN go install -v github.com/yrbb/protoc-gen-rain@v0.0.1
+
+RUN git clone --branch v2.2.0 https://github.com/grpc-ecosystem/grpc-gateway.git /go/src/github.com/grpc-ecosystem/grpc-gateway
+
+COPY ./generator/router.sh /generator/
