@@ -72,9 +72,9 @@ import (
 )
 
 type Response struct {
-	Code int    `json:"code,omitempty"`
-	Msg  string `json:"msg,omitempty"`
-	Data any    `json:"data,omitempty"`
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data any    `json:"data"`
 }
 
 func (s Response) String() string {
@@ -82,10 +82,19 @@ func (s Response) String() string {
 	return string(bts)
 }
 
+func JSON(ctx *gin.Context, data any) {
+	ctx.JSON(200, Response{
+		Code: 0,
+		Msg: "",
+		Data: data,
+	})
+}
+
 func Error(ctx *gin.Context, code int, err error) {
 	ctx.JSON(200, Response{
 		Code: code,
 		Msg:  err.Error(),
+		Data: nil,
 	})
 }
 

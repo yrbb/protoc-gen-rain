@@ -831,7 +831,7 @@ func (g *Generator) generateClientMethod(reqServ, servName string, method *descr
 		g.P(`return`)
 		g.P(`}`)
 		g.P()
-		g.P(`ctx.JSON(200, &output)`)
+		g.P(`router.JSON(ctx, &output)`)
 	}
 	g.P("})")
 	g.P()
