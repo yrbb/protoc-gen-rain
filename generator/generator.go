@@ -498,6 +498,7 @@ func (g *Generator) GenerateAllFiles() {
 	}
 
 	for _, file := range g.allFiles {
+		// model file
 		g.Reset()
 		g.writeOutput = genFileMap[file]
 		g.generateModelFile(file)
@@ -510,6 +511,7 @@ func (g *Generator) GenerateAllFiles() {
 			Content: proto.String(g.String()),
 		})
 
+		// api file
 		g.Reset()
 		g.writeOutput = genFileMap[file]
 		g.generateApiFile(file)
@@ -737,6 +739,11 @@ func (g *Generator) generateClientMethod(reqServ, servName string, method *descr
 		bindCheck = false
 	}
 
+	binding := "json"
+	if val, ok := customAnnotations["binding"]; ok {
+		binding = val
+	}
+
 	if method.Options != nil && proto.HasExtension(method.Options, annotations.E_Http) {
 		ext, _ := proto.GetExtension(method.Options, annotations.E_Http)
 		if opts, ok := ext.(*annotations.HttpRule); ok {
@@ -770,19 +777,39 @@ func (g *Generator) generateClientMethod(reqServ, servName string, method *descr
 	}
 
 	if needBind {
+		bindingMth := ""
+		bindingType := ""
+		switch strings.ToLower(binding) {
+		case "form":
+			bindingMth = "ShouldBindWith"
+			bindingType = "Form"
+		case "query":
+			bindingMth = "ShouldBindWith"
+			bindingType = "Query"
+		case "formpost":
+			bindingMth = "ShouldBindWith"
+			bindingType = "FormPost"
+		case "formmultipart":
+			bindingMth = "ShouldBindWith"
+			bindingType = "FormMultipart"
+		default:
+			bindingMth = "ShouldBindBodyWith"
+			bindingType = "JSON"
+		}
+
 		g.P(`input, output := ` + inType + "{}, " + outType + "{}")
 		g.P()
 		if !bindCheck {
 			if isGet {
 				g.P(`_ = ctx.ShouldBindQuery(&input)`)
 			} else {
-				g.P(`_ = ctx.ShouldBindBodyWith(&input, binding.JSON)`)
+				g.P(`_ = ctx.` + bindingMth + `(&input, binding.` + bindingType + `)`)
 			}
 		} else {
 			if isGet {
 				g.P(`if err := ctx.ShouldBindQuery(&input); err != nil {`)
 			} else {
-				g.P(`if err := ctx.ShouldBindBodyWith(&input, binding.JSON); err != nil {`)
+				g.P(`if err := ctx.` + bindingMth + `(&input, binding.` + bindingType + `); err != nil {`)
 			}
 			g.P(`router.Error(ctx, ` + gec + `, err)`)
 			g.P(`return`)

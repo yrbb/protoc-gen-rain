@@ -71,24 +71,18 @@ func (d *FileDescriptor) goFileName(pathType pathType, typ string) string {
 		name = name[:len(name)-len(ext)]
 	}
 
-	if d.Package != nil {
-		pname := d.GetPackage()
-		pname = strings.ToLower(pname)
-		// if strings.HasSuffix(pname, "service") {
-		// 	pname = strings.TrimSuffix(pname, "service")
-		// }
-
-		arr := strings.Split(name, "/")
-		if len(arr) == 2 {
-			name = pname + "/" + arr[1]
-		} else {
-			name = pname + "/" + arr[0]
-		}
-	}
-
 	name += "." + typ + ".go"
 
 	if pathType == pathTypeSourceRelative {
+		return name
+	}
+
+	// Does the file have a "go_package" option?
+	// If it does, it may override the filename.
+	if impPath, _, ok := d.goPackageOption(); ok && impPath != "" {
+		// Replace the existing dirname with the declared import path.
+		_, name = path.Split(name)
+		name = path.Join(string(impPath), name)
 		return name
 	}
 

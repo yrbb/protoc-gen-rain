@@ -17,4 +17,4 @@ RUN go install -v github.com/yrbb/protoc-gen-rain@v0.0.1
 
 RUN git clone --branch v2.2.0 https://github.com/grpc-ecosystem/grpc-gateway.git /go/src/github.com/grpc-ecosystem/grpc-gateway
 
-COPY ./generator/router.sh /generator/
+COPY ./generator/*.sh /generator/
