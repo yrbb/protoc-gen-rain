@@ -44,6 +44,7 @@ var RegisterMiddleware = router.RegisterMiddleware
 	}
 
 	sls := []string{}
+	sla := map[string]string{}
 
 	ext := map[string]int{}
 	str += `import (
@@ -51,6 +52,16 @@ var RegisterMiddleware = router.RegisterMiddleware
 
 `
 	for k, v := range m {
+		vers, alias := "", ""
+		if arr := strings.Split(v, "/"); len(arr) > 1 {
+			vers = arr[len(arr)-1]
+			if len(vers) > 3 && vers[0] == 'v' && vers[2] == '_' {
+				vers = strings.ToUpper(vers[:1]) + vers[1:]
+				alias = arr[len(arr)-2] + vers
+			}
+		}
+
+		sla[k] = vers
 		sls = append(sls, k)
 
 		if _, ok := ext[v]; ok {
@@ -58,6 +69,12 @@ var RegisterMiddleware = router.RegisterMiddleware
 		}
 
 		ext[v] = 1
+
+		if vers != "" {
+			str += "\t" + alias + `"` + strings.TrimSuffix(repo, "/") + `/` + v + `"` + "\n"
+			m[k] = alias
+			continue
+		}
 
 		str += "\t" + `"` + strings.TrimSuffix(repo, "/") + `/` + v + `"` + "\n"
 	}
@@ -72,7 +89,13 @@ var RegisterMiddleware = router.RegisterMiddleware
 	str += "var (\n"
 	for _, k := range sls {
 		v := m[k]
-		str += "\t" + k + ` = ` + v + `.` + k + "\n"
+
+		arr := strings.Split(k, "/")
+		svc := arr[len(arr)-1]
+
+		alias := sla[k]
+
+		str += "\tRegister" + svc + `Handler` + alias + ` = ` + v + `.Register` + svc + "Handler\n"
 	}
 	str += ")\n"
 

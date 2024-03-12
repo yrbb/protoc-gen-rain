@@ -23,7 +23,7 @@ import (
 	"google.golang.org/genproto/googleapis/api/annotations"
 )
 
-var regAnnotation = regexp.MustCompile(`\/\/\s?\@tag\s+(.+)`)
+var regAnnotation = regexp.MustCompile(`\s?\@tag\s+(.+)`)
 
 // A GoImportPath is the import path of a Go package. e.g., "google.golang.org/genproto/protobuf".
 type GoImportPath string
@@ -544,9 +544,13 @@ func (g *Generator) generateApiFile(file *FileDescriptor) {
 		g.generateImported(td)
 	}
 
+	hasBinding := false
 	if len(file.FileDescriptorProto.Service) > 0 {
 		for i, service := range file.FileDescriptorProto.Service {
-			g.generateService(file, service, i)
+			binding := g.generateService(file, service, i)
+			if !hasBinding && binding {
+				hasBinding = true
+			}
 		}
 	}
 
@@ -555,7 +559,7 @@ func (g *Generator) generateApiFile(file *FileDescriptor) {
 	g.generateHeader()
 
 	if len(file.FileDescriptorProto.Service) > 0 {
-		g.generateImports("api")
+		g.generateImports("api", hasBinding)
 	}
 
 	if !g.writeOutput {
@@ -601,10 +605,10 @@ func (g *Generator) generateHandler(k, v string) {
 	m[k] = v
 
 	bts, _ = json.Marshal(m)
-	os.WriteFile(p, bts, 0777)
+	os.WriteFile(p, bts, 0o777)
 }
 
-func (g *Generator) generateService(file *FileDescriptor, service *descriptor.ServiceDescriptorProto, index int) {
+func (g *Generator) generateService(file *FileDescriptor, service *descriptor.ServiceDescriptorProto, index int) bool {
 	path := fmt.Sprintf("6,%d", index)
 
 	origServName := service.GetName()
@@ -627,6 +631,7 @@ func (g *Generator) generateService(file *FileDescriptor, service *descriptor.Se
 
 	g.P(`func Register` + servName + `Handler(g *gin.Engine, h ` + servName + `Handler) {`)
 
+	hasBinding := false
 	for i, method := range service.Method {
 		customAnnotations := map[string]string{}
 		if cs, ok := g.makeComments(fmt.Sprintf("%s,2,%d", path, i)); ok {
@@ -647,15 +652,20 @@ func (g *Generator) generateService(file *FileDescriptor, service *descriptor.Se
 			}
 		}
 
-		g.generateClientMethod(serviceName, servName, method, customAnnotations)
+		binding := g.generateClientMethod(serviceName, servName, method, customAnnotations)
+		if !hasBinding && binding {
+			hasBinding = true
+		}
 	}
 
 	g.P("}")
 	g.P()
 
 	fname := file.goFileName(g.pathType, "api")
-	arr := strings.Split(filepath.Dir(fname), "/")
-	g.generateHandler(`Register`+servName+`Handler`, arr[len(arr)-1])
+	fpath := filepath.Dir(fname)
+	g.generateHandler(fpath+"/"+servName, fpath)
+
+	return hasBinding
 }
 
 var reservedClientName = map[string]bool{}
@@ -687,7 +697,7 @@ func (g *Generator) generateClientSignature(reqServ, servName string, method *de
 	return fmt.Sprintf("%s(ctx *gin.Context%s%s) error", methName, input, output)
 }
 
-func (g *Generator) generateClientMethod(reqServ, servName string, method *descriptor.MethodDescriptorProto, customAnnotations map[string]string) {
+func (g *Generator) generateClientMethod(reqServ, servName string, method *descriptor.MethodDescriptorProto, customAnnotations map[string]string) bool {
 	gec := os.Getenv("GEN_ERROR_CODE")
 	if gec == "" {
 		gec = "500"
@@ -835,6 +845,8 @@ func (g *Generator) generateClientMethod(reqServ, servName string, method *descr
 	}
 	g.P("})")
 	g.P()
+
+	return needBind
 }
 
 // Fill the response protocol buffer with the generated output for all the files we're
@@ -875,7 +887,7 @@ func (g *Generator) generateModelFile(file *FileDescriptor) {
 	rem := g.Buffer
 	g.Buffer = new(bytes.Buffer)
 	g.generateHeader()
-	g.generateImports("model")
+	g.generateImports("model", false)
 	if !g.writeOutput {
 		return
 	}
@@ -969,7 +981,7 @@ func (g *Generator) weak(i int32) bool {
 }
 
 // Generate the imports
-func (g *Generator) generateImports(typ string) {
+func (g *Generator) generateImports(typ string, hasBinding bool) {
 	imports := make(map[GoPackageName]GoPackageName)
 	for i, s := range g.file.Dependency {
 		// Do not import weak imports.
@@ -1008,7 +1020,7 @@ func (g *Generator) generateImports(typ string) {
 	if typ == "model" {
 		g.generateModelImports(imports)
 	} else {
-		g.generateApiImports(imports)
+		g.generateApiImports(imports, hasBinding)
 	}
 }
 
@@ -1026,10 +1038,12 @@ func (g *Generator) generateModelImports(imports map[GoPackageName]GoPackageName
 	g.P()
 }
 
-func (g *Generator) generateApiImports(imports map[GoPackageName]GoPackageName) {
+func (g *Generator) generateApiImports(imports map[GoPackageName]GoPackageName, hasBinding bool) {
 	g.P("import (")
 	g.P(`"github.com/gin-gonic/gin"`)
-	g.P(`"github.com/gin-gonic/gin/binding"`)
+	if hasBinding {
+		g.P(`"github.com/gin-gonic/gin/binding"`)
+	}
 	g.P()
 	g.P(`"`, g.Param["repo"], `/router"`)
 	for importPath := range imports {
@@ -1311,6 +1325,7 @@ func (g *Generator) generateMessage(message *Descriptor, serviceName string) {
 		}
 
 		formName := jsonName
+
 		if val, ok := customAnnotations["omitempty"]; !ok || strings.EqualFold(val, "true") {
 			jsonName += ",omitempty"
 		}
